@@ -68,3 +68,50 @@ button:disabled {
 .turn-user { color: #79c0ff; }
 .turn-bot { color: #e6e8ea; }
 .turn-note { color: #8b949e; font-style: italic; }
+
+#preview {
+  width: 320px;
+  border-radius: 6px;
+  background: #111;
+  /* Mirror only the preview; the landmarker sees the unmirrored frames. */
+  transform: scaleX(-1);
+}
+
+#hud-canvas {
+  width: 480px;
+  background: #0d0d0d;
+  border-radius: 6px;
+}
+
+#hud-state {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  margin: 0.4rem 0;
+}
+
+#hud-face[data-state="on"] {
+  color: #5ad469;
+}
+
+#hud-face[data-state="off"] {
+  color: #d45a5a;
+}
+
+#hud-calibration[data-state="calibrating"] {
+  color: #ffb04e;
+}
+
+#hud-calibration[data-state="ready"] {
+  color: #9aa;
+}
+
+#hud-log {
+  height: 7rem;
+  overflow-y: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  background: #0d0d0d;
+  border-radius: 6px;
+  padding: 0.4rem;
+}

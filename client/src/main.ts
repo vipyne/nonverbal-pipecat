@@ -1,6 +1,11 @@
 import { PipecatClient } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
+import { Calibrator } from "./cues/calibration";
+import { HighPass } from "./cues/highpass";
+import { Hud } from "./hud";
+import { FaceTracker } from "./landmarker";
+import { headPose } from "./landmarker/pose";
 import { TranscriptView } from "./transcript";
 
 // Pipecat dev runner's WebRTC signalling endpoint.
@@ -75,3 +80,48 @@ disconnectBtn.addEventListener("click", async () => {
   disconnectBtn.disabled = true;
   await client.disconnect();
 });
+
+// --- camera / face landmarker + HUD --------------------------------------
+
+const preview = document.querySelector<HTMLVideoElement>("#preview")!;
+const trackerStatusEl = document.querySelector<HTMLElement>("#tracker-status")!;
+
+const hud = new Hud({
+  canvas: document.querySelector<HTMLCanvasElement>("#hud-canvas")!,
+  face: document.querySelector<HTMLElement>("#hud-face")!,
+  calibration: document.querySelector<HTMLElement>("#hud-calibration")!,
+  log: document.querySelector<HTMLElement>("#hud-log")!,
+});
+
+const calibrator = new Calibrator();
+const pitchHp = new HighPass();
+const yawHp = new HighPass();
+const tracker = new FaceTracker();
+
+tracker
+  .start({
+    video: preview,
+    onFrame: (frame) => {
+      const pose = headPose(frame.matrix);
+      calibrator.push({ ...pose, t_ms: frame.t_ms, faceDetected: frame.faceDetected, blendshapes: frame.blendshapes });
+      hud.setCalibration(calibrator.state, calibrator.progress(frame.t_ms), calibrator.baseline);
+      hud.push({
+        t_ms: frame.t_ms,
+        faceDetected: frame.faceDetected,
+        pitch: pitchHp.push(pose.pitch),
+        yaw: yawHp.push(pose.yaw),
+      });
+    },
+    onStatus: (status) => {
+      trackerStatusEl.textContent = `landmarker: ${status.mode} @ ${status.fps} fps`;
+    },
+    onError: (message) => {
+      transcript.append("note", `camera: ${message}`);
+      transcript.endTurn();
+    },
+  })
+  .catch((err) => {
+    trackerStatusEl.textContent = `camera unavailable: ${String(err)}`;
+  });
+
+window.addEventListener("beforeunload", () => tracker.stop());
