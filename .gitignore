@@ -1,0 +1,17 @@
+!.claude/
+!.claude/settings.json
+.claude/settings.local.json
+
+# Secrets
+.env
+.env.local
+
+# Client
+node_modules/
+dist/
+client/public/face_landmarker.task
+
+# Server
+__pycache__/
+*.pyc
+.venv/

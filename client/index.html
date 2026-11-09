@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nonverbal Pipecat Bot</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Nonverbal Pipecat Bot</h1>
+      <section id="controls">
+        <button id="connect">Connect</button>
+        <button id="disconnect" disabled>Disconnect</button>
+        <span id="state">disconnected</span>
+      </section>
+      <section id="transcript-pane">
+        <h2>Transcript</h2>
+        <div id="transcript"></div>
+      </section>
+    </main>
+    <audio id="bot-audio" autoplay></audio>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

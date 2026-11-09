@@ -1,0 +1,21 @@
+{
+  "name": "nonverbal-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@pipecat-ai/client-js": "^1.16.0",
+    "@pipecat-ai/small-webrtc-transport": "^1.11.2"
+  }
+}
