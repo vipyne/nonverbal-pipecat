@@ -1,8 +1,7 @@
 import { PipecatClient } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
-import { Calibrator } from "./cues/calibration";
-import { HighPass } from "./cues/highpass";
+import { CueDetector, type CueEvent } from "./cues/detector";
 import { Hud } from "./hud";
 import { FaceTracker } from "./landmarker";
 import { headPose } from "./landmarker/pose";
@@ -16,6 +15,9 @@ const disconnectBtn = document.querySelector<HTMLButtonElement>("#disconnect")!;
 const stateEl = document.querySelector<HTMLElement>("#state")!;
 const botAudio = document.querySelector<HTMLAudioElement>("#bot-audio")!;
 const transcript = new TranscriptView(document.querySelector<HTMLElement>("#transcript")!);
+
+// Mic VAD state; `yawn` only counts while the user is quiet.
+let userSpeaking = false;
 
 const client = new PipecatClient({
   transport: new SmallWebRTCTransport({
@@ -52,6 +54,12 @@ const client = new PipecatClient({
     },
     onBotStoppedSpeaking: () => {
       transcript.endTurn();
+    },
+    onUserStartedSpeaking: () => {
+      userSpeaking = true;
+    },
+    onUserStoppedSpeaking: () => {
+      userSpeaking = false;
     },
     onTrackStarted: (track, participant) => {
       if (participant?.local || track.kind !== "audio") return;
@@ -93,9 +101,7 @@ const hud = new Hud({
   log: document.querySelector<HTMLElement>("#hud-log")!,
 });
 
-const calibrator = new Calibrator();
-const pitchHp = new HighPass();
-const yawHp = new HighPass();
+const detector = new CueDetector();
 const tracker = new FaceTracker();
 
 tracker
@@ -103,14 +109,26 @@ tracker
     video: preview,
     onFrame: (frame) => {
       const pose = headPose(frame.matrix);
-      calibrator.push({ ...pose, t_ms: frame.t_ms, faceDetected: frame.faceDetected, blendshapes: frame.blendshapes });
-      hud.setCalibration(calibrator.state, calibrator.progress(frame.t_ms), calibrator.baseline);
+      const cues = detector.push({
+        ...pose,
+        t_ms: frame.t_ms,
+        faceDetected: frame.faceDetected,
+        blendshapes: frame.blendshapes,
+        userSpeaking,
+      });
+      hud.setCalibration(
+        detector.calibrationState,
+        detector.calibrationProgress(frame.t_ms),
+        detector.baseline,
+      );
       hud.push({
         t_ms: frame.t_ms,
         faceDetected: frame.faceDetected,
-        pitch: pitchHp.push(pose.pitch),
-        yaw: yawHp.push(pose.yaw),
+        ...detector.highpass,
       });
+      for (const cue of cues) {
+        hud.logCue(cue.cue, cue.t_ms, cueDetail(cue));
+      }
     },
     onStatus: (status) => {
       trackerStatusEl.textContent = `landmarker: ${status.mode} @ ${status.fps} fps`;
@@ -125,3 +143,11 @@ tracker
   });
 
 window.addEventListener("beforeunload", () => tracker.stop());
+
+/** HUD suffix: confidence plus the cue's own meta fields. */
+function cueDetail(cue: CueEvent): string {
+  const meta = Object.entries(cue.meta ?? {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join(" ");
+  return `conf ${cue.confidence.toFixed(2)}${meta ? `  ${meta}` : ""}`;
+}

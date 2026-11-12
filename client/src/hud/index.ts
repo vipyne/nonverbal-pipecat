@@ -1,11 +1,10 @@
 /** Debug HUD: pitch/yaw sparklines, cue log, face + calibration state. */
 
 import type { Baseline, CalibrationState } from "../cues/calibration";
+import { THRESHOLD_DEG } from "../cues/detector";
 
 /** Sparkline window. */
 const WINDOW_MS = 5000;
-/** Nod/shake threshold on the high-passed signal, in degrees. */
-export const THRESHOLD_DEG = 3;
 /** Vertical half-range of each sparkline, in degrees. */
 const RANGE_DEG = 15;
 const MAX_LOG_ROWS = 40;
