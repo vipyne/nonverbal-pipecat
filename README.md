@@ -54,9 +54,14 @@ Download the Face Landmarker model (~3.6 MB, gitignored, skipped if present):
 ./scripts/fetch-model.sh
 ```
 
-MediaPipe's wasm runtime is copied from `client/node_modules` into
-`client/public/mediapipe/` by the `mediapipe-wasm` vite plugin on every
-`npm run dev` / `npm run build`, so nothing is fetched from a CDN at runtime.
+MediaPipe's wasm runtime is served from `client/node_modules` under
+`/mediapipe` by the `mediapipe-wasm` vite plugin — dev middleware, and emitted
+into `dist/mediapipe/` on build — so nothing is fetched from a CDN at runtime.
+It is served from outside `public/` on purpose: the landmarker worker loads the
+runtime with a dynamic `import()`, and vite refuses to resolve imports of
+anything under `public/`. The worker gets the `vision_wasm_module_internal.*`
+(ESM) pair; the main-thread fallback gets the classic `vision_wasm_internal.*`
+pair.
 
 ## Run
 

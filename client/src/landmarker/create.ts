@@ -3,8 +3,13 @@ import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from "@med
 
 import type { Blendshapes, LandmarkerFrame } from "./types";
 
-export async function createFaceLandmarker(wasmBase: string, modelUrl: string): Promise<FaceLandmarker> {
-  const fileset = await FilesetResolver.forVisionTasks(wasmBase);
+/** `useModule` picks the ESM wasm runtime — required inside a module worker. */
+export async function createFaceLandmarker(
+  wasmBase: string,
+  modelUrl: string,
+  useModule: boolean,
+): Promise<FaceLandmarker> {
+  const fileset = await FilesetResolver.forVisionTasks(wasmBase, useModule);
   return FaceLandmarker.createFromOptions(fileset, {
     baseOptions: { modelAssetPath: modelUrl, delegate: "GPU" },
     runningMode: "VIDEO",

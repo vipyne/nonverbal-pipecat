@@ -16,5 +16,3 @@ __pycache__/
 *.pyc
 .venv/
 
-# MediaPipe wasm copied from node_modules by the vite mediapipe-wasm plugin
-client/public/mediapipe/

@@ -18,7 +18,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
   if (msg.type === "init") {
     try {
-      landmarker = await createFaceLandmarker(msg.wasmBase, msg.modelUrl);
+      // Module worker: importScripts is unavailable, so load the ESM runtime.
+      landmarker = await createFaceLandmarker(msg.wasmBase, msg.modelUrl, true);
       reply({ type: "ready" });
     } catch (err) {
       reply({ type: "error", message: String(err) });

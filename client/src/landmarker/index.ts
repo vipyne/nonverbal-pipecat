@@ -1,8 +1,7 @@
 /** Webcam → landmarker pump. Worker by default, throttled main thread as fallback. */
 import type { LandmarkerFrame, WorkerResponse } from "./types";
+import { MEDIAPIPE_WASM_BASE } from "./wasm-files";
 
-/** Served by the vite `mediapipe-wasm` plugin. */
-const WASM_BASE = "/mediapipe";
 const MODEL_URL = "/face_landmarker.task";
 
 const WORKER_FPS = 30;
@@ -102,14 +101,15 @@ function startWorkerEngine(onFrame: FrameHandler, onError?: (m: string) => void)
       onFrame(frame);
     };
 
-    worker.postMessage({ type: "init", wasmBase: WASM_BASE, modelUrl: MODEL_URL });
+    worker.postMessage({ type: "init", wasmBase: MEDIAPIPE_WASM_BASE, modelUrl: MODEL_URL });
   });
 }
 
 /** Fallback path; the MediaPipe bundle loads on demand so it stays out of the main chunk. */
 async function startMainThreadEngine(onFrame: FrameHandler): Promise<Engine> {
   const { createFaceLandmarker, flattenResult } = await import("./create");
-  const landmarker = await createFaceLandmarker(WASM_BASE, MODEL_URL);
+  // Main thread loads the runtime via a script tag, so the classic build.
+  const landmarker = await createFaceLandmarker(MEDIAPIPE_WASM_BASE, MODEL_URL, false);
   let lastStamp = 0;
   return {
     mode: "main-thread",
