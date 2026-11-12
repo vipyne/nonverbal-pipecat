@@ -48,6 +48,10 @@ VERBS = {
 }
 # Phrasing for a cue whose span has not closed yet.
 ONGOING = {"distracted": "still looking away"}
+# Slow-lane scene descriptions are hints, not detections.
+SCENE_SUFFIX = " (low confidence)"
+# Scene notes carried into one context note; only the most recent matter.
+MAX_SCENE_NOTES = 2
 # Synthetic user turn a silent cue stands in for.
 ANSWERS = {"nod": "(nods)", "shake": "(shakes head)"}
 
@@ -124,6 +128,7 @@ class NonverbalContextGate(FrameProcessor):
         self._now = time_fn
 
         self._cues: list[_Cue] = []
+        self._scenes: list[str] = []
         self._bot_speaking = False
         self._user_speaking = False
         self._utterance_start: float | None = None
@@ -168,6 +173,14 @@ class NonverbalContextGate(FrameProcessor):
 
         if isinstance(frame, BotStoppedSpeakingFrame):
             await self._maybe_check_in()
+
+    def add_scene_note(self, text: str) -> None:
+        """Record one VLM scene description for the next context note."""
+        text = (text or "").strip()
+        if not text or text in self._scenes:
+            return
+        self._scenes.append(text)
+        del self._scenes[:-MAX_SCENE_NOTES]
 
     async def _handle_cue(self, data: Any):
         """Record one cue, after letting it answer a pending question."""
@@ -247,6 +260,7 @@ class NonverbalContextGate(FrameProcessor):
         """Prepend one compact note in front of the user turn, then forget the cues."""
         summary = self._summarize()
         self._cues.clear()
+        self._scenes.clear()
         if not summary:
             return
 
@@ -280,6 +294,8 @@ class NonverbalContextGate(FrameProcessor):
                 parts.append(ONGOING.get(name, verb))
             else:
                 parts.append(f"{verb} at {cue.offset_s:.1f}s")
+
+        parts += [f"{scene}{SCENE_SUFFIX}" for scene in self._scenes]
         return ", ".join(parts)
 
     def _offset(self) -> float:

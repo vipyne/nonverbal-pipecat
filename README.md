@@ -29,8 +29,35 @@ browser ──mic audio──▶ SmallWebRTC ──▶ Deepgram STT ──▶ Cl
   high-pass used for nod/shake detection (`highpass.ts`).
 - `client/src/hud/` — canvas sparklines, cue log, face and calibration state.
 
-Video never leaves the browser: the camera feeds the landmarker in a worker and
-only small JSON cue events go to the server.
+- `client/src/cues/detector.ts` — the cue detector; `client/src/vlm.ts` — the
+  slow-lane flag the client reads.
+- `server/nonverbal_gate.py` — folds cues into LLM context; `server/vlm_lane.py`
+  — the optional slow lane.
+
+By default video never leaves the browser: the camera feeds the landmarker in a
+worker and only small JSON cue events go to the server. The optional slow lane
+below is the one exception.
+
+## Optional: VLM slow lane
+
+Off by default (`ENABLE_VLM=0`). With `ENABLE_VLM=1` in `.env` the server also
+receives the camera track at 1 fps, hands one frame every 4 s to a local
+Moondream VLM, and folds its one-sentence scene description into the same
+context note at low confidence. The fast lane stays JSON-only either way.
+
+The client reads the same repo-root `.env` (vite's `envDir` is the repo root and
+`ENABLE_` is an env prefix, so only `ENABLE_*` and `VITE_*` names reach the
+browser — the API keys beside them do not), and sends its camera to the server
+only when the flag is on.
+
+The VLM itself is an extra install (torch + transformers, several GB):
+
+```bash
+cd server && uv add "pipecat-ai[moondream]"
+```
+
+Without it, `ENABLE_VLM=1` fails when the first client connects, naming that
+command.
 
 ## Prerequisites
 

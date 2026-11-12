@@ -13,28 +13,41 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.runner.types import RunnerArguments, SmallWebRTCRunnerArguments
-from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.transports.base_transport import TransportParams, VideoInSourceParams
+from pipecat.transports.smallwebrtc.transport import CAM_VIDEO_SOURCE, SmallWebRTCTransport
 from pipecat.workers.runner import WorkerRunner
 
 from nonverbal_gate import CUE_MESSAGE_TYPE, NonverbalContextGate
 from services import (
     ENABLE_DISTRACTION_CHECKIN,
+    ENABLE_VLM,
     SYSTEM_PROMPT,
     create_llm,
     create_stt,
     create_tts,
 )
+from vlm_lane import VLM_FRAMERATE, create_scene_sampler
+
+
+def transport_params(*, enable_vlm: bool = ENABLE_VLM) -> TransportParams:
+    """Audio always; the camera track only on the VLM slow lane."""
+    return TransportParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        video_in_enabled=enable_vlm,
+        video_in_sources=(
+            {CAM_VIDEO_SOURCE: VideoInSourceParams(framerate=VLM_FRAMERATE)}
+            if enable_vlm
+            else {}
+        ),
+    )
 
 
 def build_transport(runner_args: SmallWebRTCRunnerArguments) -> SmallWebRTCTransport:
-    """Audio-only SmallWebRTC transport; video arrives only on the VLM slow lane."""
+    """SmallWebRTC transport for one session."""
     return SmallWebRTCTransport(
         webrtc_connection=runner_args.webrtc_connection,
-        params=TransportParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-        ),
+        params=transport_params(),
     )
 
 
@@ -55,9 +68,14 @@ async def bot(runner_args: RunnerArguments):
         distraction_checkin=ENABLE_DISTRACTION_CHECKIN,
     )
 
+    # Slow lane, when ENABLE_VLM=1: camera frames stop at the sampler, which
+    # feeds scene notes to the gate from its own task.
+    scene_sampler = create_scene_sampler(nonverbal)
+
     pipeline = Pipeline(
         [
             transport.input(),
+            *([scene_sampler] if scene_sampler else []),
             VADProcessor(vad_analyzer=SileroVADAnalyzer()),
             create_stt(),
             aggregators.user(),

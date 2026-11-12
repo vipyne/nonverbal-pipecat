@@ -34,8 +34,15 @@ genuinely fits the moment.
 A turn that reads "(nods)" or "(shakes head)" is the user answering your \
 question silently, on camera. Take it as a plain yes or no and carry on."""
 
+def _flag(name: str) -> bool:
+    """An env flag; anything but unset/0/false counts as on."""
+    return os.getenv(name, "0").strip().lower() not in ("", "0", "false")
+
+
 # Post-reply check-in after a long distraction; off unless the env flag is set.
-ENABLE_DISTRACTION_CHECKIN = os.getenv("ENABLE_DISTRACTION_CHECKIN", "0") not in ("", "0", "false", "False")
+ENABLE_DISTRACTION_CHECKIN = _flag("ENABLE_DISTRACTION_CHECKIN")
+# Server-side VLM slow lane: camera video, sampled frames, scene notes.
+ENABLE_VLM = _flag("ENABLE_VLM")
 
 
 def _require(name: str) -> str:
@@ -79,3 +86,16 @@ def create_tts():
             voice=CARTESIA_VOICE_ID,
         ),
     )
+
+
+def create_vision():
+    """Moondream VLM for the slow lane; imported only when ENABLE_VLM is on."""
+    try:
+        from pipecat.services.moondream.vision import MoondreamService
+    except ImportError as e:
+        raise RuntimeError(
+            "ENABLE_VLM=1 needs the moondream extra — run "
+            '`cd server && uv add "pipecat-ai[moondream]"`'
+        ) from e
+
+    return MoondreamService()

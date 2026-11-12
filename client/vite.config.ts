@@ -46,6 +46,10 @@ function mediapipeWasm(): Plugin {
 
 export default defineConfig({
   plugins: [mediapipeWasm()],
+  // Repo-root .env, the same file the server loads. Only VITE_* and ENABLE_*
+  // names reach the browser bundle, so the API keys beside them stay out.
+  envDir: "..",
+  envPrefix: ["VITE_", "ENABLE_"],
   server: {
     port: 5173,
     strictPort: true,

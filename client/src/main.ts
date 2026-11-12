@@ -6,6 +6,7 @@ import { Hud } from "./hud";
 import { FaceTracker } from "./landmarker";
 import { headPose } from "./landmarker/pose";
 import { TranscriptView } from "./transcript";
+import { VLM_ENABLED } from "./vlm";
 
 // Pipecat dev runner's WebRTC signalling endpoint.
 const OFFER_URL = import.meta.env.VITE_BOT_OFFER_URL ?? "http://localhost:7860/api/offer";
@@ -26,7 +27,9 @@ const client = new PipecatClient({
     webrtcRequestParams: { endpoint: OFFER_URL },
   }),
   enableMic: true,
-  enableCam: false,
+  // Camera goes to the server only for the VLM slow lane; the face landmarker
+  // below runs off its own getUserMedia stream regardless.
+  enableCam: VLM_ENABLED,
   callbacks: {
     onTransportStateChanged: (state) => {
       stateEl.textContent = state;
