@@ -1,7 +1,7 @@
 import { PipecatClient } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
-import { CueDetector, type CueEvent } from "./cues/detector";
+import { CUE_MESSAGE_TYPE, CueDetector, type CueEvent } from "./cues/detector";
 import { Hud } from "./hud";
 import { FaceTracker } from "./landmarker";
 import { headPose } from "./landmarker/pose";
@@ -18,6 +18,8 @@ const transcript = new TranscriptView(document.querySelector<HTMLElement>("#tran
 
 // Mic VAD state; `yawn` only counts while the user is quiet.
 let userSpeaking = false;
+// Cues only go over the data channel while a session is up.
+let connected = false;
 
 const client = new PipecatClient({
   transport: new SmallWebRTCTransport({
@@ -30,10 +32,12 @@ const client = new PipecatClient({
       stateEl.textContent = state;
     },
     onConnected: () => {
+      connected = true;
       connectBtn.disabled = true;
       disconnectBtn.disabled = false;
     },
     onDisconnected: () => {
+      connected = false;
       connectBtn.disabled = false;
       disconnectBtn.disabled = true;
       transcript.endTurn();
@@ -128,6 +132,7 @@ tracker
       });
       for (const cue of cues) {
         hud.logCue(cue.cue, cue.t_ms, cueDetail(cue));
+        sendCue(cue);
       }
     },
     onStatus: (status) => {
@@ -143,6 +148,17 @@ tracker
   });
 
 window.addEventListener("beforeunload", () => tracker.stop());
+
+/** Fast lane: one small JSON message per cue, fire-and-forget. */
+function sendCue(cue: CueEvent): void {
+  if (!connected) return;
+  try {
+    client.sendClientMessage(CUE_MESSAGE_TYPE, cue);
+  } catch (err) {
+    transcript.append("note", `cue send failed: ${String(err)}`);
+    transcript.endTurn();
+  }
+}
 
 /** HUD suffix: confidence plus the cue's own meta fields. */
 function cueDetail(cue: CueEvent): string {

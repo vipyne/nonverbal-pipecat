@@ -11,7 +11,10 @@ type OscillationCue = "nod" | "shake";
 /** Cues detected from a condition held over time. */
 type SustainCue = "distracted" | "confused" | "amused" | "yawn";
 
-/** Wire format sent to the server (Task 4). */
+/** RTVI client-message type the server's NonverbalContextGate listens for. */
+export const CUE_MESSAGE_TYPE = "nonverbal";
+
+/** Wire format sent to the server. */
 export interface CueEvent {
   type: "nonverbal";
   cue: CueType;

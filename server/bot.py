@@ -17,7 +17,14 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.workers.runner import WorkerRunner
 
-from services import SYSTEM_PROMPT, create_llm, create_stt, create_tts
+from nonverbal_gate import CUE_MESSAGE_TYPE, NonverbalContextGate
+from services import (
+    ENABLE_DISTRACTION_CHECKIN,
+    SYSTEM_PROMPT,
+    create_llm,
+    create_stt,
+    create_tts,
+)
 
 
 def build_transport(runner_args: SmallWebRTCRunnerArguments) -> SmallWebRTCTransport:
@@ -41,12 +48,20 @@ async def bot(runner_args: RunnerArguments):
     context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
     aggregators = LLMContextAggregatorPair(context)
 
+    # Sits ahead of the LLM: sees cue messages pushed downstream by the RTVI
+    # processor and bot-speaking frames pushed upstream by transport.output().
+    nonverbal = NonverbalContextGate(
+        context=context,
+        distraction_checkin=ENABLE_DISTRACTION_CHECKIN,
+    )
+
     pipeline = Pipeline(
         [
             transport.input(),
             VADProcessor(vad_analyzer=SileroVADAnalyzer()),
             create_stt(),
             aggregators.user(),
+            nonverbal,
             create_llm(),
             create_tts(),
             transport.output(),
@@ -58,6 +73,12 @@ async def bot(runner_args: RunnerArguments):
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
     )
+
+    @worker.rtvi.event_handler("on_client_message")
+    async def on_client_message(_rtvi, message):
+        """Log the fast lane; the gate itself reads the frame inside the pipeline."""
+        if message.type == CUE_MESSAGE_TYPE:
+            logger.info(f"cue: {message.data}")
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _client):

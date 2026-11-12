@@ -21,7 +21,21 @@ conversation.
 
 Speak in short, natural sentences — one or two at a time. No markdown, no \
 bullet lists, no emoji; everything you write is read aloud. Ask a follow-up \
-question when it keeps the conversation moving."""
+question when it keeps the conversation moving.
+
+The user is on camera and their browser watches for nonverbal cues. You will \
+sometimes see a bracketed note like \
+"[nonverbal during your last reply: nodded x2, looked confused at 4.1s]". \
+Treat it as a hint about how your last reply landed, and let it shape what you \
+say next — slow down and re-explain when they looked confused, keep going when \
+they nodded along. Never narrate the cue itself ("I see you nodded") unless it \
+genuinely fits the moment.
+
+A turn that reads "(nods)" or "(shakes head)" is the user answering your \
+question silently, on camera. Take it as a plain yes or no and carry on."""
+
+# Post-reply check-in after a long distraction; off unless the env flag is set.
+ENABLE_DISTRACTION_CHECKIN = os.getenv("ENABLE_DISTRACTION_CHECKIN", "0") not in ("", "0", "false", "False")
 
 
 def _require(name: str) -> str:
