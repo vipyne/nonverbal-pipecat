@@ -41,7 +41,7 @@ only small JSON cue events go to the server.
 ## Setup
 
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
 Fill in `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY` and `CARTESIA_API_KEY`. `.env`

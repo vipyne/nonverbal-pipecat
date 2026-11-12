@@ -27,7 +27,7 @@ question when it keeps the conversation moving."""
 def _require(name: str) -> str:
     value = os.getenv(name)
     if not value:
-        raise RuntimeError(f"{name} missing — copy .env.example to .env and fill it in")
+        raise RuntimeError(f"{name} missing — copy env.example to .env and fill it in")
     return value
 
 
