@@ -5,17 +5,30 @@ your webcam: the browser detects nonverbal cues (nod, shake, distracted,
 confused, amused, yawn) and sends small JSON events to the server, which folds
 them into the LLM's context. A silent nod can answer a yes/no question.
 
-Status: voice pipeline plus the webcam fast lane's landmarker and debug HUD
-(milestones 1-2). The cue detector and server-side `NonverbalContextGate` land
-in later milestones.
+Status: all milestones from `prompt.md` are implemented. Voice pipeline,
+webcam fast lane with cue detection, the server-side `NonverbalContextGate`,
+and the optional VLM slow lane are all wired and test-covered. See
+[What's verified](#whats-verified-vs-what-needs-a-human) for the split
+between what ran in CI-style checks and what still needs a human on camera.
 
 ## Architecture
 
 ```
-browser ──mic audio──▶ SmallWebRTC ──▶ Deepgram STT ──▶ Claude ──▶ Cartesia TTS ──▶ bot audio
+                    ┌─ mic audio ──▶ Deepgram STT ─┐
+browser ──SmallWebRTC┤                             ├─▶ Claude ──▶ Cartesia TTS ──▶ bot audio
+                    └─ cue JSON ──▶ NonverbalContextGate (folds cues into context) ─┘
    │
-   └─webcam──▶ worker: MediaPipe Face Landmarker ──▶ head pose + blendshapes ──▶ HUD
+   ├─webcam──▶ worker: MediaPipe Face Landmarker ──▶ head pose + blendshapes
+   │              │
+   │              ├─▶ cue detector (nod/shake/distracted/confused/amused/yawn) ─▶ HUD + RTVI client messages
+   │              └─▶ debug HUD (sparklines, cue log, calibration state)
+   │
+   └─(ENABLE_VLM=1 only)──▶ 1 fps video track ──▶ server SceneSampler (1 frame / 4s) ──▶ Moondream ──▶ scene note (low confidence)
 ```
+
+The fast lane (cue detector) never leaves the browser except as small JSON
+events. The slow lane (VLM) is the only path that sends video to the server,
+and only when `ENABLE_VLM=1`.
 
 - `server/bot.py` — pipeline and the Pipecat dev-runner entry point.
 - `server/services.py` — the single swap spot for STT / LLM / TTS and the
@@ -92,7 +105,15 @@ pair.
 
 ## Run
 
-Two terminals.
+One command, from the repo root — downloads the model if missing, installs
+dependencies if missing, starts server and client together, and stops both on
+Ctrl-C:
+
+```bash
+make dev
+```
+
+Or run the two halves in separate terminals (same commands `make dev` runs):
 
 Terminal 1 — server (Pipecat dev runner on <http://localhost:7860>):
 
@@ -107,7 +128,14 @@ cd client && npm run dev
 ```
 
 Open <http://localhost:5173> in Chrome, grant microphone and camera access,
-click **Connect**, and talk. Ctrl-C in each terminal stops it.
+click **Connect**, and talk. Ctrl-C stops both.
+
+To try the distraction check-in (off by default), set the flag before
+starting the server:
+
+```bash
+cd server && ENABLE_DISTRACTION_CHECKIN=1 uv run bot.py
+```
 
 The HUD shows high-passed pitch (nod axis) and yaw (shake axis) over the last
 5 s with ±3° threshold lines, whether a face is detected, and the calibration
@@ -115,6 +143,90 @@ state — baselines freeze after about 10 s of face-visible frames.
 
 The client posts its WebRTC offer to `http://localhost:7860/api/offer`. Point it
 somewhere else with `VITE_BOT_OFFER_URL` in `client/.env.local`.
+
+## Tuning knobs
+
+Client (`client/src/landmarker/pose.ts`, `client/src/cues/detector.ts`,
+`client/src/cues/highpass.ts`):
+
+- `PITCH_SIGN`, `YAW_SIGN` — flip to `-1` if an axis reads backwards on your
+  setup (verified empirically at the HUD gate; both are `1` as shipped).
+- `HIGHPASS_ALPHA` (0.05 at ~30 Hz) — EMA high-pass coefficient, corner
+  ≈0.24 Hz. Raising it rejects slower drift but also dulls real nods.
+- `THRESHOLD_DEG` (3°) — minimum high-passed pitch/yaw swing per oscillation
+  reversal to count toward a `nod`/`shake`.
+- `OSCILLATION_WINDOW_MS` (1200 ms) — window for counting the ≥2 reversals
+  that make a `nod`/`shake`.
+- `REFRACTORY_MS` (1000 ms) — debounce per cue type; extends while the motion
+  continues, so one long nod is one cue, not one per second.
+- `FLOORS` (smile 0.25, browDown 0.25, squint 0.2, lookOut 0.4, jawOpen 0.4)
+  and `MIN_STD` (0.02) — absolute guards on top of the baseline+2σ rule for
+  blendshape-driven cues (`confused`, `amused`, `yawn`, `distracted`'s
+  `eyeLookOut*` path), so a dead-still calibration (σ≈0) doesn't fire on any
+  twitch.
+
+Server (`server/nonverbal_gate.py`, `server/vlm_lane.py`):
+
+- `ANSWER_WINDOW_S` (2.5 s) — how long after the bot stops speaking a silent
+  `nod`/`shake` still answers a yes/no question.
+- `DISTRACTION_CHECKIN_S` (4.0 s) — distracted span, opened while the bot was
+  speaking, that earns a post-reply check-in. Only applies when
+  `ENABLE_DISTRACTION_CHECKIN=1`.
+- `MAX_SCENE_NOTES` (2) — most recent VLM scene strings kept per context note.
+- `SAMPLE_INTERVAL_S` (4.0 s) — minimum gap between VLM samples; a slow VLM
+  query delays the next sample rather than queuing one.
+
+Flags (`.env`, both default off):
+
+- `ENABLE_VLM` — turns on the slow lane (server video sampling + Moondream +
+  client camera track). Requires `uv add "pipecat-ai[moondream]"` in
+  `server/` first.
+- `ENABLE_DISTRACTION_CHECKIN` — turns on the post-reply distraction check-in.
+  Off by default because the plan's "pause" would otherwise have to cancel
+  TTS, which cues must never do; the check-in waits for the bot's utterance to
+  finish instead.
+
+## Known limitations
+
+- Pose sign constants and the worker-vs-main-thread landmarker path are only
+  confirmed on the machine(s) a human has actually run the HUD gate on; a
+  different camera, OS, or browser could need `PITCH_SIGN`/`YAW_SIGN` flipped
+  or fall back to the 15 fps main-thread path.
+- `nod`/`shake` only answer a yes/no question when the bot's last sentence
+  ends in `?` and starts with a word in `YES_NO_LEADS`
+  (`server/nonverbal_gate.py`) — "What do you think?" is not treated as
+  answerable, by design.
+- The VLM slow lane needs a separate, several-GB install
+  (`pipecat-ai[moondream]`, torch + transformers) not included by default.
+- Distraction detection and the VLM sampler have no notion of multiple faces
+  beyond MediaPipe's single-face mode (`numFaces: 1`); a second person in
+  frame is only ever described qualitatively by the VLM, never cue-detected.
+
+## What's verified vs. what needs a human
+
+Machine-verified (every iteration ran these commands and saw them pass):
+
+- All 23 vitest + 40 pytest tests, and `npm run build` / `uv run python -c
+  "import bot"` importing cleanly.
+- The server starting and listening with dummy keys, and the client dev
+  server serving `http://localhost:5173` (including the MediaPipe wasm
+  runtime's `?import` URL, which previously 500'd).
+- `make dev` bringing up both processes and tearing them down with no leaked
+  ports or processes.
+- The VLM sampler's timing/in-flight guards and the `ENABLE_VLM`/
+  `ENABLE_DISTRACTION_CHECKIN` flags gating their code paths off by default,
+  via mutation-checked unit tests.
+
+Needs a human in front of a camera and microphone (see `ralph/HUMAN.md` for
+the exact gated steps):
+
+- A real spoken conversation (STT → LLM → TTS round trip with audio).
+- That the HUD sparklines track actual head motion and the pitch/yaw signs
+  match nodding/shaking (confirmed as shipped: both `+1`).
+- That nodding during the bot's reply shows up in the HUD cue log and the
+  server's folded context note, and that a silent nod answers a yes/no
+  question end to end.
+- The `make dev` full "Done means" checklist run in one sitting.
 
 ## Tests
 
