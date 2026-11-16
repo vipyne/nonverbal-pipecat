@@ -132,6 +132,7 @@ tracker
         t_ms: frame.t_ms,
         faceDetected: frame.faceDetected,
         ...detector.highpass,
+        thresholds: detector.turnThresholds,
       });
       for (const cue of cues) {
         hud.logCue(cue.cue, cue.t_ms, cueDetail(cue));

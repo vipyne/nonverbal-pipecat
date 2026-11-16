@@ -1,7 +1,7 @@
 /** Debug HUD: pitch/yaw sparklines, cue log, face + calibration state. */
 
 import type { Baseline, CalibrationState } from "../cues/calibration";
-import { THRESHOLD_DEG } from "../cues/detector";
+import { TURN_MAX_DEG } from "../cues/detector";
 
 /** Sparkline window. */
 const WINDOW_MS = 5000;
@@ -21,6 +21,8 @@ export interface HudSample {
   /** High-passed pitch/yaw, degrees. */
   pitch: number;
   yaw: number;
+  /** Detector's current adaptive turn threshold per axis, degrees. */
+  thresholds?: { pitch: number; yaw: number };
 }
 
 export interface HudElements {
@@ -32,6 +34,7 @@ export interface HudElements {
 
 export class Hud {
   private points: Point[] = [];
+  private thresholds = { pitch: TURN_MAX_DEG, yaw: TURN_MAX_DEG };
   private ctx: CanvasRenderingContext2D;
 
   constructor(private els: HudElements) {
@@ -42,6 +45,7 @@ export class Hud {
 
   /** Feed one high-passed frame; redraws the sparklines. */
   push(sample: HudSample) {
+    if (sample.thresholds) this.thresholds = sample.thresholds;
     this.points.push({ t_ms: sample.t_ms, pitch: sample.pitch, yaw: sample.yaw });
     const cutoff = sample.t_ms - WINDOW_MS;
     while (this.points.length && this.points[0].t_ms < cutoff) this.points.shift();
@@ -81,8 +85,11 @@ export class Hud {
     ctx.clearRect(0, 0, width, height);
 
     const laneHeight = height / 2;
-    this.drawLane(0, laneHeight, "pitch (nod)", (p) => p.pitch, now, "#4ea1ff");
-    this.drawLane(laneHeight, laneHeight, "yaw (shake)", (p) => p.yaw, now, "#ffb04e");
+    const { pitch, yaw } = this.thresholds;
+    const lane = (top: number, label: string, pick: (p: Point) => number, color: string, deg: number) =>
+      this.drawLane(top, laneHeight, `${label} ±${deg.toFixed(1)}°`, pick, now, color, deg);
+    lane(0, "pitch (nod)", (p) => p.pitch, "#4ea1ff", pitch);
+    lane(laneHeight, "yaw (shake)", (p) => p.yaw, "#ffb04e", yaw);
   }
 
   private drawLane(
@@ -92,6 +99,7 @@ export class Hud {
     pick: (p: Point) => number,
     now: number,
     color: string,
+    threshold: number,
   ) {
     const { ctx } = this;
     const width = this.els.canvas.width;
@@ -112,7 +120,7 @@ export class Hud {
     // Threshold lines.
     ctx.strokeStyle = "#7a3b3b";
     ctx.setLineDash([4, 4]);
-    for (const deg of [THRESHOLD_DEG, -THRESHOLD_DEG]) {
+    for (const deg of [threshold, -threshold]) {
       ctx.beginPath();
       ctx.moveTo(0, y(deg));
       ctx.lineTo(width, y(deg));

@@ -34,8 +34,14 @@ export interface DetectorInput {
   userSpeaking?: boolean;
 }
 
-/** Oscillation amplitude on the high-passed signal that counts as a turn. */
-export const THRESHOLD_DEG = 3;
+/** Turn threshold floor/ceiling, degrees. Ceiling keeps it no less sensitive
+ * than the old static bar; floor catches subtle, natural gestures. */
+export const TURN_MIN_DEG = 1.2;
+export const TURN_MAX_DEG = 3;
+/** Turn threshold = NOISE_K x the axis's own noise level. */
+export const NOISE_K = 4;
+/** EMA coefficient for that noise level (~3 s at 30 Hz). */
+export const NOISE_ALPHA = 0.01;
 /** Span the ≥2 direction reversals of a nod/shake must fall inside. */
 const OSCILLATION_WINDOW_MS = 1200;
 /** Per-cue debounce; renewed motion inside it extends the same gesture. */
@@ -57,6 +63,8 @@ interface AxisState {
   sign: 0 | 1 | -1;
   /** Reversal amplitudes inside the oscillation window. */
   turns: { t_ms: number; amp: number }[];
+  /** EMA of |high-passed| over non-gesture frames, degrees. */
+  noise: number;
 }
 
 interface SustainState {
@@ -69,8 +77,8 @@ export class CueDetector {
   private calibrator: Calibrator;
   private lastHighpass = { pitch: 0, yaw: 0 };
   private axes: Record<OscillationCue, AxisState> = {
-    nod: { hp: new HighPass(), prev: null, sign: 0, turns: [] },
-    shake: { hp: new HighPass(), prev: null, sign: 0, turns: [] },
+    nod: { hp: new HighPass(), prev: null, sign: 0, turns: [], noise: 0 },
+    shake: { hp: new HighPass(), prev: null, sign: 0, turns: [], noise: 0 },
   };
   private sustained: Record<SustainCue, SustainState> = {
     distracted: { since: null, active: false },
@@ -109,6 +117,11 @@ export class CueDetector {
     const pitchHp = this.axes.nod.hp.push(input.pitch);
     const yawHp = this.axes.shake.hp.push(input.yaw);
     this.lastHighpass = { pitch: pitchHp, yaw: yawHp };
+    // Runs through calibration too, so the bar is already noise-aware at first cue.
+    if (input.faceDetected) {
+      this.trackNoise(this.axes.nod, pitchHp);
+      this.trackNoise(this.axes.shake, yawHp);
+    }
 
     const baseline = this.calibrator.baseline;
     if (!baseline) return [];
@@ -127,6 +140,14 @@ export class CueDetector {
     return this.lastHighpass;
   }
 
+  /** Current adaptive turn threshold per axis, degrees. */
+  get turnThresholds(): { pitch: number; yaw: number } {
+    return {
+      pitch: turnThreshold(this.axes.nod.noise),
+      yaw: turnThreshold(this.axes.shake.noise),
+    };
+  }
+
   reset() {
     this.calibrator.reset();
     for (const axis of Object.values(this.axes)) {
@@ -134,6 +155,7 @@ export class CueDetector {
       axis.prev = null;
       axis.sign = 0;
       axis.turns = [];
+      axis.noise = 0;
     }
     for (const state of Object.values(this.sustained)) {
       state.since = null;
@@ -143,9 +165,17 @@ export class CueDetector {
     this.lastHighpass = { pitch: 0, yaw: 0 };
   }
 
+  /** EMA of |hp| over sub-threshold frames, so a gesture never raises its own bar. */
+  private trackNoise(axis: AxisState, hp: number) {
+    const magnitude = Math.abs(hp);
+    if (magnitude > turnThreshold(axis.noise)) return;
+    axis.noise += NOISE_ALPHA * (magnitude - axis.noise);
+  }
+
   /** Counts direction reversals of a high-passed axis; emits nod/shake. */
   private oscillation(cue: OscillationCue, hp: number, t_ms: number, out: CueEvent[]) {
     const axis = this.axes[cue];
+    const threshold = turnThreshold(axis.noise);
     const prev = axis.prev;
     if (prev === null) {
       axis.prev = hp;
@@ -159,7 +189,7 @@ export class CueDetector {
     const reversed = axis.sign !== 0 && sign !== axis.sign;
     axis.sign = sign;
     axis.prev = hp;
-    if (!reversed || Math.abs(prev) <= THRESHOLD_DEG) return;
+    if (!reversed || Math.abs(prev) <= threshold) return;
 
     const last = this.lastCue[cue];
     if (last !== undefined && t_ms - last < REFRACTORY_MS) {
@@ -180,7 +210,7 @@ export class CueDetector {
       type: "nonverbal",
       cue,
       t_ms,
-      confidence: clamp01(amp / (3 * THRESHOLD_DEG)),
+      confidence: clamp01(amp / (3 * threshold)),
       meta: { amplitude_deg: round1(amp), turns: axis.turns.length },
     });
     this.lastCue[cue] = t_ms;
@@ -267,6 +297,11 @@ export class CueDetector {
       meta: { ...(opts.emitEnd ? { phase: "start" } : {}), ...(opts.meta?.() ?? {}) },
     });
   }
+}
+
+/** Noise level -> turn threshold, clamped to the sensitivity band. */
+function turnThreshold(noise: number): number {
+  return Math.max(TURN_MIN_DEG, Math.min(TURN_MAX_DEG, NOISE_K * noise));
 }
 
 function clamp01(v: number): number {

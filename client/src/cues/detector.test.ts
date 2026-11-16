@@ -203,6 +203,35 @@ describe("CueDetector", () => {
     expect(silent.filter((c) => c.cue === "yawn").length).toBe(1);
   });
 
+  it("emits nod for a subtle 2 Hz, 2° pitch oscillation after a still calibration", () => {
+    const cues = run([
+      ...frames(0, WARMUP_MS),
+      ...frames(WARMUP_MS, 2000, { pitch: sine(2, 2) }),
+    ]);
+
+    expect(cues.filter((c) => c.cue === "nod").length).toBeGreaterThanOrEqual(1);
+    expect(cues.filter((c) => c.cue === "shake")).toHaveLength(0);
+  });
+
+  it("emits shake for a subtle 2 Hz, 2° yaw oscillation after a still calibration", () => {
+    const cues = run([
+      ...frames(0, WARMUP_MS),
+      ...frames(WARMUP_MS, 2000, { yaw: sine(2, 2) }),
+    ]);
+
+    expect(cues.filter((c) => c.cue === "shake").length).toBeGreaterThanOrEqual(1);
+    expect(cues.filter((c) => c.cue === "nod")).toHaveLength(0);
+  });
+
+  it("raises the turn threshold relative to the signal's own jitter", () => {
+    const rand = lcg(3);
+    const jitter: Signal = { pitch: () => rand() * 1.5 };
+
+    const cues = run([...frames(0, WARMUP_MS, jitter), ...frames(WARMUP_MS, 8000, jitter)]);
+
+    expect(cues.filter((c) => c.cue === "nod")).toHaveLength(0);
+  });
+
   it("emits nothing while still calibrating", () => {
     const cues = run(frames(0, 5000, { pitch: sine(2, 8) }));
     expect(cues).toEqual([]);
