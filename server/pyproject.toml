@@ -1,10 +1,10 @@
 [project]
-name = "nonverbal-server"
+name = "nonverbal-bot"
 version = "0.1.0"
 description = "Pipecat voice bot that folds browser-detected nonverbal cues into LLM context"
 requires-python = ">=3.12"
 dependencies = [
-    "pipecat-ai[anthropic,cartesia,deepgram,runner,silero,webrtc,webrtc-video]>=1.15.0",
+    "pipecat-ai[anthropic,cartesia,deepgram,moondream,runner,silero,webrtc,webrtc-video]>=1.16.0",
     "python-dotenv>=1.2.4",
 ]
 
