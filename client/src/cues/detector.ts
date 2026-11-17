@@ -34,14 +34,19 @@ export interface DetectorInput {
   userSpeaking?: boolean;
 }
 
-/** Turn threshold floor/ceiling, degrees. Ceiling keeps it no less sensitive
- * than the old static bar; floor catches subtle, natural gestures. */
-export const TURN_MIN_DEG = 1.2;
-export const TURN_MAX_DEG = 3;
+/** Per-axis turn threshold floor/ceiling, degrees. Nod band sits lower (real
+ * nods are subtle); shake band higher (yaw carries more incidental sway). */
+export const NOD_MIN_DEG = 0.8;
+export const NOD_MAX_DEG = 3;
+export const SHAKE_MIN_DEG = 1.6;
+export const SHAKE_MAX_DEG = 3.5;
 /** Turn threshold = NOISE_K x the axis's own noise level. */
 export const NOISE_K = 4;
 /** EMA coefficient for that noise level (~3 s at 30 Hz). */
 export const NOISE_ALPHA = 0.01;
+/** A turn cue's amplitude must exceed the other axis's recent peak by this
+ * factor, so the minor axis of a diagonal head move never fires its own cue. */
+export const DOMINANCE_RATIO = 1.2;
 /** Span the ≥2 direction reversals of a nod/shake must fall inside. */
 const OSCILLATION_WINDOW_MS = 1200;
 /** Per-cue debounce; renewed motion inside it extends the same gesture. */
@@ -65,7 +70,15 @@ interface AxisState {
   turns: { t_ms: number; amp: number }[];
   /** EMA of |high-passed| over non-gesture frames, degrees. */
   noise: number;
+  /** |high-passed| samples inside the oscillation window, for dominance. */
+  recent: { t_ms: number; mag: number }[];
 }
+
+/** Threshold clamp band per oscillation axis. */
+const TURN_BANDS: Record<OscillationCue, { min: number; max: number }> = {
+  nod: { min: NOD_MIN_DEG, max: NOD_MAX_DEG },
+  shake: { min: SHAKE_MIN_DEG, max: SHAKE_MAX_DEG },
+};
 
 interface SustainState {
   since: number | null;
@@ -77,8 +90,8 @@ export class CueDetector {
   private calibrator: Calibrator;
   private lastHighpass = { pitch: 0, yaw: 0 };
   private axes: Record<OscillationCue, AxisState> = {
-    nod: { hp: new HighPass(), prev: null, sign: 0, turns: [], noise: 0 },
-    shake: { hp: new HighPass(), prev: null, sign: 0, turns: [], noise: 0 },
+    nod: { hp: new HighPass(), prev: null, sign: 0, turns: [], noise: 0, recent: [] },
+    shake: { hp: new HighPass(), prev: null, sign: 0, turns: [], noise: 0, recent: [] },
   };
   private sustained: Record<SustainCue, SustainState> = {
     distracted: { since: null, active: false },
@@ -119,8 +132,10 @@ export class CueDetector {
     this.lastHighpass = { pitch: pitchHp, yaw: yawHp };
     // Runs through calibration too, so the bar is already noise-aware at first cue.
     if (input.faceDetected) {
-      this.trackNoise(this.axes.nod, pitchHp);
-      this.trackNoise(this.axes.shake, yawHp);
+      this.trackNoise("nod", pitchHp);
+      this.trackNoise("shake", yawHp);
+      this.trackRecent(this.axes.nod, input.t_ms, pitchHp);
+      this.trackRecent(this.axes.shake, input.t_ms, yawHp);
     }
 
     const baseline = this.calibrator.baseline;
@@ -143,8 +158,8 @@ export class CueDetector {
   /** Current adaptive turn threshold per axis, degrees. */
   get turnThresholds(): { pitch: number; yaw: number } {
     return {
-      pitch: turnThreshold(this.axes.nod.noise),
-      yaw: turnThreshold(this.axes.shake.noise),
+      pitch: turnThreshold("nod", this.axes.nod.noise),
+      yaw: turnThreshold("shake", this.axes.shake.noise),
     };
   }
 
@@ -156,6 +171,7 @@ export class CueDetector {
       axis.sign = 0;
       axis.turns = [];
       axis.noise = 0;
+      axis.recent = [];
     }
     for (const state of Object.values(this.sustained)) {
       state.since = null;
@@ -166,16 +182,25 @@ export class CueDetector {
   }
 
   /** EMA of |hp| over sub-threshold frames, so a gesture never raises its own bar. */
-  private trackNoise(axis: AxisState, hp: number) {
+  private trackNoise(cue: OscillationCue, hp: number) {
+    const axis = this.axes[cue];
     const magnitude = Math.abs(hp);
-    if (magnitude > turnThreshold(axis.noise)) return;
+    if (magnitude > turnThreshold(cue, axis.noise)) return;
     axis.noise += NOISE_ALPHA * (magnitude - axis.noise);
+  }
+
+  /** Rolling |hp| window per axis, read as the OTHER axis's dominance bar. */
+  private trackRecent(axis: AxisState, t_ms: number, hp: number) {
+    axis.recent.push({ t_ms, mag: Math.abs(hp) });
+    while (axis.recent.length && t_ms - axis.recent[0].t_ms > OSCILLATION_WINDOW_MS) {
+      axis.recent.shift();
+    }
   }
 
   /** Counts direction reversals of a high-passed axis; emits nod/shake. */
   private oscillation(cue: OscillationCue, hp: number, t_ms: number, out: CueEvent[]) {
     const axis = this.axes[cue];
-    const threshold = turnThreshold(axis.noise);
+    const threshold = turnThreshold(cue, axis.noise);
     const prev = axis.prev;
     if (prev === null) {
       axis.prev = hp;
@@ -206,6 +231,12 @@ export class CueDetector {
     if (axis.turns.length < 2) return;
 
     const amp = axis.turns.reduce((sum, t) => sum + t.amp, 0) / axis.turns.length;
+    // Dominance: the other axis moving nearly as much means a diagonal head
+    // move — hold fire, keep turns, let the clearer axis win the window.
+    const other = this.axes[cue === "nod" ? "shake" : "nod"];
+    const otherPeak = other.recent.reduce((max, r) => Math.max(max, r.mag), 0);
+    if (amp < DOMINANCE_RATIO * otherPeak) return;
+
     out.push({
       type: "nonverbal",
       cue,
@@ -299,9 +330,10 @@ export class CueDetector {
   }
 }
 
-/** Noise level -> turn threshold, clamped to the sensitivity band. */
-function turnThreshold(noise: number): number {
-  return Math.max(TURN_MIN_DEG, Math.min(TURN_MAX_DEG, NOISE_K * noise));
+/** Noise level -> turn threshold, clamped to the axis's sensitivity band. */
+function turnThreshold(cue: OscillationCue, noise: number): number {
+  const band = TURN_BANDS[cue];
+  return Math.max(band.min, Math.min(band.max, NOISE_K * noise));
 }
 
 function clamp01(v: number): number {

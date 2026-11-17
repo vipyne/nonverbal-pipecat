@@ -140,8 +140,9 @@ cd server && ENABLE_DISTRACTION_CHECKIN=1 uv run bot.py
 The HUD shows high-passed pitch (nod axis) and yaw (shake axis) over the last
 5 s, whether a face is detected, and the calibration state — baselines freeze
 after about 10 s of face-visible frames. Each lane's dashed threshold lines sit
-at that axis's current adaptive turn threshold (1.2°–3°), printed in the lane
-label; they tighten on a still head and widen when the axis is noisy.
+at that axis's current adaptive turn threshold (nod 0.8°–3°, shake 1.6°–3.5°),
+printed in the lane label; they tighten on a still head and widen when the
+axis is noisy.
 
 The client posts its WebRTC offer to `http://localhost:7860/api/offer`. Point it
 somewhere else with `VITE_BOT_OFFER_URL` in `client/.env.local`.
@@ -155,13 +156,16 @@ Client (`client/src/landmarker/pose.ts`, `client/src/cues/detector.ts`,
   setup (verified empirically at the HUD gate; both are `1` as shipped).
 - `HIGHPASS_ALPHA` (0.05 at ~30 Hz) — EMA high-pass coefficient, corner
   ≈0.24 Hz. Raising it rejects slower drift but also dulls real nods.
-- `TURN_MIN_DEG` (1.2°) / `TURN_MAX_DEG` (3°) — band for the adaptive turn
-  threshold: the minimum high-passed pitch/yaw swing per oscillation reversal
-  that counts toward a `nod`/`shake`. The floor is what makes subtle, natural
-  nods register; the ceiling is the old static bar, so it never gets less
-  sensitive than that.
+- `NOD_MIN_DEG` (0.8°) / `NOD_MAX_DEG` (3°) and `SHAKE_MIN_DEG` (1.6°) /
+  `SHAKE_MAX_DEG` (3.5°) — per-axis bands for the adaptive turn threshold:
+  the minimum high-passed swing per oscillation reversal that counts toward a
+  `nod` (pitch) / `shake` (yaw). The nod band sits lower because real nods are
+  subtle; the shake band higher because yaw carries more incidental sway.
+- `DOMINANCE_RATIO` (1.2) — a `nod`/`shake` only fires when its reversal
+  amplitude exceeds the OTHER axis's recent peak by this factor, so the minor
+  axis of a diagonal head move can't fire the wrong cue.
 - `NOISE_K` (4) — threshold = `NOISE_K` × the axis's own noise level, clamped
-  to the band above. Lower it for more sensitivity in a noisy signal.
+  to the axis's band above. Lower it for more sensitivity in a noisy signal.
 - `NOISE_ALPHA` (0.01 at ~30 Hz, ≈3 s) — EMA coefficient for that noise level.
   Only frames at or below the current threshold feed it, so a gesture can
   never raise its own bar; it tracks from the first frame, through calibration.

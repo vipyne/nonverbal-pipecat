@@ -1,7 +1,7 @@
 /** Debug HUD: pitch/yaw sparklines, cue log, face + calibration state. */
 
 import type { Baseline, CalibrationState } from "../cues/calibration";
-import { TURN_MAX_DEG } from "../cues/detector";
+import { NOD_MAX_DEG, SHAKE_MAX_DEG } from "../cues/detector";
 
 /** Sparkline window. */
 const WINDOW_MS = 5000;
@@ -34,7 +34,7 @@ export interface HudElements {
 
 export class Hud {
   private points: Point[] = [];
-  private thresholds = { pitch: TURN_MAX_DEG, yaw: TURN_MAX_DEG };
+  private thresholds = { pitch: NOD_MAX_DEG, yaw: SHAKE_MAX_DEG };
   private ctx: CanvasRenderingContext2D;
 
   constructor(private els: HudElements) {

@@ -223,6 +223,45 @@ describe("CueDetector", () => {
     expect(cues.filter((c) => c.cue === "nod")).toHaveLength(0);
   });
 
+  it("emits nod for a gentle 2 Hz, 1° pitch oscillation after a still calibration", () => {
+    const cues = run([
+      ...frames(0, WARMUP_MS),
+      ...frames(WARMUP_MS, 2000, { pitch: sine(2, 1) }),
+    ]);
+
+    expect(cues.filter((c) => c.cue === "nod").length).toBeGreaterThanOrEqual(1);
+    expect(cues.filter((c) => c.cue === "shake")).toHaveLength(0);
+  });
+
+  it("ignores a 2 Hz, 1.4° yaw wobble below the shake floor", () => {
+    const cues = run([
+      ...frames(0, WARMUP_MS),
+      ...frames(WARMUP_MS, 2000, { yaw: sine(2, 1.4) }),
+    ]);
+
+    expect(cues.filter((c) => c.cue === "shake")).toHaveLength(0);
+  });
+
+  it("emits only nod when pitch dominates a diagonal oscillation", () => {
+    const cues = run([
+      ...frames(0, WARMUP_MS),
+      ...frames(WARMUP_MS, 2000, { pitch: sine(2, 6), yaw: sine(2, 3) }),
+    ]);
+
+    expect(cues.filter((c) => c.cue === "nod").length).toBeGreaterThanOrEqual(1);
+    expect(cues.filter((c) => c.cue === "shake")).toHaveLength(0);
+  });
+
+  it("emits only shake when yaw dominates a diagonal oscillation", () => {
+    const cues = run([
+      ...frames(0, WARMUP_MS),
+      ...frames(WARMUP_MS, 2000, { yaw: sine(2, 6), pitch: sine(2, 3) }),
+    ]);
+
+    expect(cues.filter((c) => c.cue === "shake").length).toBeGreaterThanOrEqual(1);
+    expect(cues.filter((c) => c.cue === "nod")).toHaveLength(0);
+  });
+
   it("raises the turn threshold relative to the signal's own jitter", () => {
     const rand = lcg(3);
     const jitter: Signal = { pitch: () => rand() * 1.5 };
