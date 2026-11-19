@@ -1,12 +1,14 @@
 """Tests for the NonverbalContextGate frame processor."""
 
 import pytest
+from loguru import logger as loguru_logger
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     InterruptionFrame,
     LLMContextFrame,
     UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frameworks.rtvi.frames import RTVIClientMessageFrame
@@ -207,6 +209,118 @@ async def test_nod_after_the_window_is_not_an_answer():
     assert not any(isinstance(f, LLMContextFrame) for f in down)
 
 
+async def test_nod_during_the_question_still_answers():
+    context = conversation(bot_text="Want me to continue?")
+    processor = gate(context)
+
+    down, _up = await run_test(
+        processor,
+        frames_to_send=[
+            BotStartedSpeakingFrame(),
+            cue("nod", t_ms=4000),
+            BotStoppedSpeakingFrame(),
+        ],
+    )
+
+    assert "(nods)" in user_texts(context)
+    assert any(isinstance(f, LLMContextFrame) for f in down)
+    # The answering nod is consumed, not repeated as a note.
+    assert notes(context) == []
+
+
+async def test_early_shake_answers_as_no():
+    context = conversation(bot_text="Should I email you the summary?")
+    processor = gate(context)
+
+    await run_test(
+        processor,
+        frames_to_send=[
+            BotStartedSpeakingFrame(),
+            cue("shake", t_ms=4000),
+            BotStoppedSpeakingFrame(),
+        ],
+    )
+
+    assert "(shakes head)" in user_texts(context)
+
+
+async def test_stale_nod_from_earlier_in_the_reply_is_not_an_answer():
+    context = conversation(bot_text="Want me to continue?")
+    processor = gate(context, early_answer_window_s=0.1)
+    context.add_message({"role": "user", "content": "go on"})
+
+    await run_test(
+        processor,
+        frames_to_send=[
+            BotStartedSpeakingFrame(),
+            cue("nod", t_ms=1000),
+            SleepFrame(sleep=0.3),
+            BotStoppedSpeakingFrame(),
+            LLMContextFrame(context),
+        ],
+    )
+
+    assert "(nods)" not in user_texts(context)
+    assert any("nodded" in n for n in notes(context))
+
+
+async def test_early_nod_on_a_non_question_stays_a_note():
+    context = conversation(bot_text="So that is how the bridge was built.")
+    processor = gate(context)
+    context.add_message({"role": "user", "content": "cool"})
+
+    await run_test(
+        processor,
+        frames_to_send=[
+            BotStartedSpeakingFrame(),
+            cue("nod", t_ms=2000),
+            BotStoppedSpeakingFrame(),
+            LLMContextFrame(context),
+        ],
+    )
+
+    assert "(nods)" not in user_texts(context)
+    assert any("nodded" in n for n in notes(context))
+
+
+async def test_vad_blip_does_not_kill_the_answer_window():
+    context = conversation(bot_text="Want me to continue?")
+    processor = gate(context)
+
+    await run_test(
+        processor,
+        frames_to_send=[
+            BotStoppedSpeakingFrame(),
+            UserStartedSpeakingFrame(),
+            UserStoppedSpeakingFrame(),
+            cue("nod", t_ms=4000),
+        ],
+    )
+
+    assert "(nods)" in user_texts(context)
+
+
+async def test_rejected_nod_logs_the_blocking_gate():
+    context = conversation(bot_text="Want me to continue?")
+    processor = gate(context)
+    records: list[str] = []
+    sink_id = loguru_logger.add(lambda m: records.append(str(m)), level="INFO")
+    try:
+        await run_test(
+            processor,
+            frames_to_send=[
+                BotStoppedSpeakingFrame(),
+                SleepFrame(sleep=ANSWER_WINDOW_S + 0.2),
+                cue("nod", t_ms=4000),
+            ],
+        )
+    finally:
+        loguru_logger.remove(sink_id)
+
+    assert "(nods)" not in user_texts(context)
+    assert any("answer window expired" in r for r in records)
+
+
 async def test_nod_is_not_an_answer_once_the_user_speaks():
     context = conversation(bot_text="Want me to continue?")
     processor = gate(context)
@@ -331,6 +445,9 @@ async def test_short_distraction_does_not_trigger_a_checkin():
         "Sound good?",
         "That is the gist. Should I go on?",
         "Is that what you meant?",
+        "Here's what's next — want me to walk through it step by step?",
+        "That's the gist, want me to keep going?",
+        "I can stop here, or should I continue?",
     ],
 )
 def test_is_yes_no_question_true(text):

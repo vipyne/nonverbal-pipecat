@@ -9,29 +9,35 @@
   <body>
     <main>
       <h1>Nonverbal Pipecat Bot</h1>
-      <section id="controls">
-        <button id="connect">Connect</button>
-        <button id="disconnect" disabled>Disconnect</button>
-        <span id="state">disconnected</span>
-      </section>
-      <section id="camera-pane">
-        <h2>Camera</h2>
-        <video id="preview" playsinline muted></video>
-        <div id="tracker-status">camera off</div>
-      </section>
-      <section id="hud-pane">
-        <h2>Nonverbal HUD</h2>
-        <canvas id="hud-canvas" width="480" height="180"></canvas>
-        <div id="hud-state">
-          <span id="hud-face" data-state="off">face: none</span>
-          <span id="hud-calibration" data-state="calibrating">calibrating 0%</span>
+      <div id="layout">
+        <div id="col-left">
+          <section id="controls">
+            <button id="connect">Connect</button>
+            <button id="disconnect" disabled>Disconnect</button>
+            <span id="state">disconnected</span>
+          </section>
+          <section id="camera-pane">
+            <h2>Camera</h2>
+            <video id="preview" playsinline muted></video>
+            <div id="tracker-status">camera off</div>
+          </section>
         </div>
-        <div id="hud-log"></div>
-      </section>
-      <section id="transcript-pane">
-        <h2>Transcript</h2>
-        <div id="transcript"></div>
-      </section>
+        <div id="col-right">
+          <section id="hud-pane">
+            <h2>Nonverbal HUD</h2>
+            <canvas id="hud-canvas" width="480" height="180"></canvas>
+            <div id="hud-state">
+              <span id="hud-face" data-state="off">face: none</span>
+              <span id="hud-calibration" data-state="calibrating">calibrating 0%</span>
+            </div>
+            <div id="hud-log"></div>
+          </section>
+          <section id="transcript-pane">
+            <h2>Transcript</h2>
+            <div id="transcript"></div>
+          </section>
+        </div>
+      </div>
     </main>
     <audio id="bot-audio" autoplay></audio>
     <script type="module" src="/src/main.ts"></script>

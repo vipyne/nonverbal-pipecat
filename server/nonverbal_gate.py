@@ -33,9 +33,11 @@ CUE_MESSAGE_TYPE = "nonverbal"
 # Note opener; the gate finds its own notes by this prefix.
 NOTE_PREFIX = "[nonverbal during your last reply: "
 # How long after the bot stops speaking a nod still counts as the answer.
-ANSWER_WINDOW_S = 2.5
+ANSWER_WINDOW_S = 5.0
+# How long before the bot stops speaking a nod already counts as the answer.
+EARLY_ANSWER_WINDOW_S = 1.5
 # Distraction span that earns a check-in, when the flag is on.
-DISTRACTION_CHECKIN_S = 4.0
+DISTRACTION_CHECKIN_S = 6.0
 
 # Past-tense phrasing per cue, read by the LLM inside the note.
 VERBS = {
@@ -60,6 +62,10 @@ YES_NO_LEADS = frozenset(
     """am are can could did do does had has have is may might must ready right shall
     should sound sounds want wanna was were will would""".split()
 )
+# Clause boundaries inside the question sentence.
+_CLAUSE_SPLIT = re.compile(r"[—–,;:]|\s-\s")
+# Connectives skipped before the lead-word check.
+_CLAUSE_OPENERS = frozenset("or and but so then well now".split())
 
 
 def is_yes_no_question(text: str) -> bool:
@@ -67,8 +73,13 @@ def is_yes_no_question(text: str) -> bool:
     question = _last_question(text)
     if not question:
         return False
-    words = re.findall(r"[a-z']+", question.lower())
-    return bool(words) and words[0] in YES_NO_LEADS
+    for clause in _CLAUSE_SPLIT.split(question):
+        words = re.findall(r"[a-z']+", clause.lower())
+        while words and words[0] in _CLAUSE_OPENERS:
+            words.pop(0)
+        if words and words[0] in YES_NO_LEADS:
+            return True
+    return False
 
 
 def _last_question(text: str) -> str:
@@ -90,6 +101,15 @@ class _Cue:
     duration_ms: float | None = None
 
 
+@dataclass
+class _EarlyAnswer:
+    """Nod/shake that fired while the bot was still speaking its question."""
+
+    name: str
+    at: float
+    cue: _Cue
+
+
 class NonverbalContextGate(FrameProcessor):
     """Turns fast-lane cue messages into LLM context, never into interruptions.
 
@@ -104,6 +124,7 @@ class NonverbalContextGate(FrameProcessor):
         *,
         context: LLMContext,
         answer_window_s: float = ANSWER_WINDOW_S,
+        early_answer_window_s: float = EARLY_ANSWER_WINDOW_S,
         distraction_checkin: bool = False,
         distraction_checkin_s: float = DISTRACTION_CHECKIN_S,
         time_fn: Callable[[], float] = time.monotonic,
@@ -115,6 +136,8 @@ class NonverbalContextGate(FrameProcessor):
             context: The pipeline's LLM context, shared with the aggregators.
             answer_window_s: Window after the bot stops speaking in which a
                 nod or shake answers its yes/no question.
+            early_answer_window_s: Window before the bot stops speaking in
+                which a nod or shake already counts as that answer.
             distraction_checkin: Enable the post-reply check-in after a long
                 distraction.
             distraction_checkin_s: Distraction span that earns a check-in.
@@ -123,12 +146,14 @@ class NonverbalContextGate(FrameProcessor):
         super().__init__(**kwargs)
         self._context = context
         self._answer_window_s = answer_window_s
+        self._early_answer_window_s = early_answer_window_s
         self._distraction_checkin = distraction_checkin
         self._distraction_checkin_s = distraction_checkin_s
         self._now = time_fn
 
         self._cues: list[_Cue] = []
         self._scenes: list[str] = []
+        self._early_answer: _EarlyAnswer | None = None
         self._bot_speaking = False
         self._user_speaking = False
         self._utterance_start: float | None = None
@@ -153,16 +178,19 @@ class NonverbalContextGate(FrameProcessor):
             self._bot_speaking = True
             self._utterance_start = self._now()
             self._cues.clear()
+            self._early_answer = None
             self._distraction_open = False
             self._checkin_owed = None
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_speaking = False
             self._bot_stopped_at = self._now()
             self._answerable = is_yes_no_question(self._last_assistant_text())
+            if self._answerable:
+                logger.debug(f"{self}: yes/no question armed for {self._answer_window_s:.1f}s")
         elif isinstance(frame, UserStartedSpeakingFrame):
+            # VAD alone only pauses the window; a committed user turn
+            # (LLMContextFrame) is what consumes the question.
             self._user_speaking = True
-            # The user is answering out loud; a nod is no longer the answer.
-            self._answerable = False
         elif isinstance(frame, UserStoppedSpeakingFrame):
             self._user_speaking = False
         elif isinstance(frame, LLMContextFrame):
@@ -172,6 +200,7 @@ class NonverbalContextGate(FrameProcessor):
         await self.push_frame(frame, direction)
 
         if isinstance(frame, BotStoppedSpeakingFrame):
+            await self._maybe_answer_early()
             await self._maybe_check_in()
 
     def add_scene_note(self, text: str) -> None:
@@ -201,7 +230,12 @@ class NonverbalContextGate(FrameProcessor):
         if name == "distracted":
             self._track_distraction(cue)
 
-        if await self._maybe_answer(name):
+        if name in ANSWERS and self._bot_speaking:
+            # Users often start nodding before the question ends; hold the
+            # cue so it can answer once the bot stops.
+            self._early_answer = _EarlyAnswer(name=name, at=self._now(), cue=cue)
+            logger.info(f"{self}: {name} during bot speech — held as possible early answer")
+        elif await self._maybe_answer(name):
             return
 
         self._cues.append(cue)
@@ -209,13 +243,11 @@ class NonverbalContextGate(FrameProcessor):
 
     async def _maybe_answer(self, name: str) -> bool:
         """Answer a pending yes/no question with a synthetic user turn."""
-        if name not in ANSWERS or not self._answerable:
+        if name not in ANSWERS:
             return False
-        if self._bot_speaking or self._user_speaking:
-            return False
-        if self._bot_stopped_at is None:
-            return False
-        if self._now() - self._bot_stopped_at > self._answer_window_s:
+        blocker = self._answer_blocker()
+        if blocker:
+            logger.info(f"{self}: {name} not taken as answer — {blocker}")
             return False
 
         self._answerable = False
@@ -225,6 +257,40 @@ class NonverbalContextGate(FrameProcessor):
         logger.info(f"{self}: silent answer {answer}")
         await self.push_frame(LLMContextFrame(self._context))
         return True
+
+    async def _maybe_answer_early(self):
+        """Let a nod/shake from the tail of the bot's question answer it."""
+        early = self._early_answer
+        self._early_answer = None
+        if early is None or self._bot_stopped_at is None:
+            return
+        age = self._bot_stopped_at - early.at
+        if age > self._early_answer_window_s:
+            if self._answerable:
+                logger.info(
+                    f"{self}: {early.name} not taken as answer — fired {age:.1f}s "
+                    f"before the question ended (> {self._early_answer_window_s:.1f}s)"
+                )
+            return
+        if early.cue in self._cues:
+            self._cues.remove(early.cue)
+        if not await self._maybe_answer(early.name):
+            self._cues.append(early.cue)
+
+    def _answer_blocker(self) -> str | None:
+        """Why a nod/shake cannot answer right now, or None."""
+        if not self._answerable:
+            return "no unanswered yes/no question"
+        if self._bot_speaking:
+            return "bot still speaking"
+        if self._user_speaking:
+            return "user speaking"
+        if self._bot_stopped_at is None:
+            return "bot has not finished a reply yet"
+        elapsed = self._now() - self._bot_stopped_at
+        if elapsed > self._answer_window_s:
+            return f"answer window expired ({elapsed:.1f}s > {self._answer_window_s:.1f}s)"
+        return None
 
     async def _maybe_check_in(self):
         """Ask for a check-in once the bot is done and the user is back."""

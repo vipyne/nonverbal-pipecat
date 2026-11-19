@@ -1,6 +1,7 @@
 import { PipecatClient } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
+import { isNewBotOutput } from "./bot-output";
 import { CUE_MESSAGE_TYPE, CueDetector, type CueEvent } from "./cues/detector";
 import { Hud } from "./hud";
 import { FaceTracker } from "./landmarker";
@@ -57,6 +58,7 @@ const client = new PipecatClient({
       transcript.endTurn();
     },
     onBotOutput: (data) => {
+      if (!isNewBotOutput(data)) return;
       transcript.append("bot", data.text);
     },
     onBotStoppedSpeaking: () => {

@@ -181,8 +181,10 @@ Client (`client/src/landmarker/pose.ts`, `client/src/cues/detector.ts`,
 
 Server (`server/nonverbal_gate.py`, `server/vlm_lane.py`):
 
-- `ANSWER_WINDOW_S` (2.5 s) — how long after the bot stops speaking a silent
+- `ANSWER_WINDOW_S` (4.0 s) — how long after the bot stops speaking a silent
   `nod`/`shake` still answers a yes/no question.
+- `EARLY_ANSWER_WINDOW_S` (2.0 s) — how long before the bot stops speaking a
+  `nod`/`shake` already counts as that answer.
 - `DISTRACTION_CHECKIN_S` (4.0 s) — distracted span, opened while the bot was
   speaking, that earns a post-reply check-in. Only applies when
   `ENABLE_DISTRACTION_CHECKIN=1`.

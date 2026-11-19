@@ -11,8 +11,21 @@ body {
 }
 
 main {
-  max-width: 44rem;
+  max-width: 64rem;
   margin: 0 auto;
+}
+
+#layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 820px) {
+  #layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 h1 {
@@ -70,7 +83,8 @@ button:disabled {
 .turn-note { color: #8b949e; font-style: italic; }
 
 #preview {
-  width: 320px;
+  width: 100%;
+  max-width: 320px;
   border-radius: 6px;
   background: #111;
   /* Mirror only the preview; the landmarker sees the unmirrored frames. */
@@ -78,7 +92,8 @@ button:disabled {
 }
 
 #hud-canvas {
-  width: 480px;
+  width: 100%;
+  max-width: 480px;
   background: #0d0d0d;
   border-radius: 6px;
 }

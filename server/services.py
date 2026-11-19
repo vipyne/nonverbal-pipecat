@@ -36,6 +36,7 @@ genuinely fits the moment.
 A turn that reads "(nods)" or "(shakes head)" is the user answering your \
 question silently, on camera. Take it as a plain yes or no and carry on.
 
+Always end every turn with a yes or no question. 
 Start by asking the user 'Would you like to talk about the weather?'.
 """
 
