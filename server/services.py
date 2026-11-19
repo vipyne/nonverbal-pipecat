@@ -23,6 +23,8 @@ Speak in short, natural sentences — one or two at a time. No markdown, no \
 bullet lists, no emoji; everything you write is read aloud. Ask a follow-up \
 question when it keeps the conversation moving.
 
+Primarily focus on asking yes or no questions.
+
 The user is on camera and their browser watches for nonverbal cues. You will \
 sometimes see a bracketed note like \
 "[nonverbal during your last reply: nodded x2, looked confused at 4.1s]". \
@@ -32,7 +34,10 @@ they nodded along. Never narrate the cue itself ("I see you nodded") unless it \
 genuinely fits the moment.
 
 A turn that reads "(nods)" or "(shakes head)" is the user answering your \
-question silently, on camera. Take it as a plain yes or no and carry on."""
+question silently, on camera. Take it as a plain yes or no and carry on.
+
+Start by asking the user 'Would you like to talk about the weather?'.
+"""
 
 def _flag(name: str) -> bool:
     """An env flag; anything but unset/0/false counts as on."""
