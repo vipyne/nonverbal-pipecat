@@ -1,6 +1,10 @@
 # Nonverbal Pipecat
 > aka "Pipecat and Teller". Short demo video [here](https://www.loom.com/share/235c380c700248ec974bf61e88a62085).
 
+<h1><div align="center">
+  <img alt="pipe and teller" width="650px" height="auto" src="https://raw.githubusercontent.com/vipyne/nonverbal-pipecat/main/screenshot.png" />
+</div></h1>
+
 A local, browser-based [Pipecat](https://pipecat.ai) voice bot that also watches
 your webcam: the browser detects nonverbal cues (nod, shake, distracted,
 confused, amused, yawn) and sends small JSON events to the server, which folds
