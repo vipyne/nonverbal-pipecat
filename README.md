@@ -1,15 +1,10 @@
-# non-verbal pipecat
+# Nonverbal Pipecat
+> aka "Pipecat and Teller". Short demo video [here](https://www.loom.com/share/235c380c700248ec974bf61e88a62085).
 
 A local, browser-based [Pipecat](https://pipecat.ai) voice bot that also watches
 your webcam: the browser detects nonverbal cues (nod, shake, distracted,
 confused, amused, yawn) and sends small JSON events to the server, which folds
 them into the LLM's context. A silent nod can answer a yes/no question.
-
-Status: all milestones from `prompt.md` are implemented. Voice pipeline,
-webcam fast lane with cue detection, the server-side `NonverbalContextGate`,
-and the optional VLM slow lane are all wired and test-covered. See
-[What's verified](#whats-verified-vs-what-needs-a-human) for the split
-between what ran in CI-style checks and what still needs a human on camera.
 
 ## Architecture
 
@@ -181,7 +176,7 @@ Client (`client/src/landmarker/pose.ts`, `client/src/cues/detector.ts`,
 
 Server (`server/nonverbal_gate.py`, `server/vlm_lane.py`):
 
-- `ANSWER_WINDOW_S` (4.0 s) — how long after the bot stops speaking a silent
+- `ANSWER_WINDOW_S` (5.0 s) — how long after the bot stops speaking a silent
   `nod`/`shake` still answers a yes/no question.
 - `EARLY_ANSWER_WINDOW_S` (2.0 s) — how long before the bot stops speaking a
   `nod`/`shake` already counts as that answer.
@@ -218,32 +213,6 @@ Flags (`.env`, both default off):
   beyond MediaPipe's single-face mode (`numFaces: 1`); a second person in
   frame is only ever described qualitatively by the VLM, never cue-detected.
 
-## What's verified vs. what needs a human
-
-Machine-verified (every iteration ran these commands and saw them pass):
-
-- All 23 vitest + 40 pytest tests, and `npm run build` / `uv run python -c
-  "import bot"` importing cleanly.
-- The server starting and listening with dummy keys, and the client dev
-  server serving `http://localhost:5173` (including the MediaPipe wasm
-  runtime's `?import` URL, which previously 500'd).
-- `make dev` bringing up both processes and tearing them down with no leaked
-  ports or processes.
-- The VLM sampler's timing/in-flight guards and the `ENABLE_VLM`/
-  `ENABLE_DISTRACTION_CHECKIN` flags gating their code paths off by default,
-  via mutation-checked unit tests.
-
-Needs a human in front of a camera and microphone (see `ralph/HUMAN.md` for
-the exact gated steps):
-
-- A real spoken conversation (STT → LLM → TTS round trip with audio).
-- That the HUD sparklines track actual head motion and the pitch/yaw signs
-  match nodding/shaking (confirmed as shipped: both `+1`).
-- That nodding during the bot's reply shows up in the HUD cue log and the
-  server's folded context note, and that a silent nod answers a yes/no
-  question end to end.
-- The `make dev` full "Done means" checklist run in one sitting.
-
 ## Tests
 
 ```bash
@@ -253,20 +222,3 @@ cd client && npx vitest run
 ```bash
 cd server && uv run pytest
 ```
-
-## macOS vs Linux
-
-- Everything here is plain Bash and works on both. `uv` and `npm` install all
-  dependencies into the repo (`server/.venv`, `client/node_modules`).
-- Mic and webcam access require a secure context. `http://localhost` counts as
-  one in both Chrome and Firefox, so no TLS setup is needed for local dev.
-- If the landmarker cannot start in a Web Worker, it falls back to the main
-  thread at 15 fps; the status line under the preview says which path is live.
-- macOS: Chrome asks for mic/camera permission per site, and macOS itself asks
-  once per app under System Settings → Privacy & Security.
-- Linux: if the browser sees no input device, check that PipeWire/PulseAudio is
-  running; Chrome under Wayland sometimes needs `--enable-features=WebRTCPipeWireCapturer`
-  for camera capture.
-- `timeout` (used in a few scripted checks) ships with GNU coreutils on Linux.
-  macOS has no `timeout` by default — use a background process plus `kill`, or
-  install coreutils and use `gtimeout`.
